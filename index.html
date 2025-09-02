@@ -146,9 +146,12 @@
                     <div class="text-sm text-gray-400 mb-1">Next Spawn (GMT+8):</div>
                     <div class="text-lg font-semibold text-green-400" data-field="next-spawn">-</div>
                 </div>
-                <div class="flex items-end justify-end">
+                <div class="flex items-end justify-end space-x-2">
                     <button class="boss-died-btn px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded">
                         <i class="fas fa-skull mr-1"></i> Boss Died Again
+                    </button>
+                    <button class="delete-timer-btn px-4 py-2 bg-red-600 hover:bg-red-700 rounded">
+                        <i class="fas fa-trash-alt mr-1"></i> Delete
                     </button>
                 </div>
             </div>
@@ -156,24 +159,38 @@
     </div>
 
     <script>
-        // Update current time (GMT+8)
+        // Define the GMT+8 timezone for consistent use
+        const GMT8_TIMEZONE = 'Asia/Singapore'; 
+
+        // Helper function to get a Date object representing the current time in GMT+8
+        function getGMT8Date(date = new Date()) {
+            return new Date(date.toLocaleString('en-US', { timeZone: GMT8_TIMEZONE }));
+        }
+
+        // Helper function to format a Date object into the 'YYYY-MM-DDTHH:MM' format required by datetime-local input
+        function formatDateTimeForInput(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
+
+        // Update current time (GMT+8) display
         function updateCurrentTime() {
-            const now = new Date();
-            // Set to GMT+8
-            const gmt8Time = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+            const gmt8Time = getGMT8Date();
             document.getElementById('current-time').textContent = 
-                gmt8Time.toLocaleTimeString('en-US', { hour12: false }) + 
-                ' (' + gmt8Time.toLocaleDateString() + ')';
+                gmt8Time.toLocaleTimeString('en-US', { hour12: false, timeZone: GMT8_TIMEZONE }) + 
+                ' (' + gmt8Time.toLocaleDateString('en-US', { timeZone: GMT8_TIMEZONE }) + ')';
         }
         setInterval(updateCurrentTime, 1000);
         updateCurrentTime();
 
         // Set current time as kill time
         document.getElementById('set-current-time').addEventListener('click', function() {
-            const now = new Date();
-            // Convert to local datetime-local format (YYYY-MM-DDTHH:MM)
-            const localDateTime = now.toISOString().slice(0, 16);
-            document.getElementById('kill-time').value = localDateTime;
+            const gmt8Now = getGMT8Date();
+            document.getElementById('kill-time').value = formatDateTimeForInput(gmt8Now);
             updateSpawnPreview();
         });
 
@@ -188,11 +205,15 @@
             const respawnMinutes = parseInt(document.getElementById('respawn-minutes').value) || 0;
             
             if (killTimeInput && (respawnHours > 0 || respawnMinutes > 0)) {
-                const killTime = new Date(killTimeInput);
+                // Parse the input value as if it's already in GMT+8
+                const killTime = new Date(killTimeInput); 
+                // Adjust killTime to be a true GMT+8 Date object for calculations
+                const actualKillTime = getGMT8Date(killTime);
+
                 const totalMilliseconds = (respawnHours * 3600 + respawnMinutes * 60) * 1000;
-                const spawnTime = new Date(killTime.getTime() + totalMilliseconds);
+                const spawnTime = new Date(actualKillTime.getTime() + totalMilliseconds);
                 
-                document.getElementById('preview-kill-time').textContent = formatDateTime(killTime);
+                document.getElementById('preview-kill-time').textContent = formatDateTime(actualKillTime);
                 document.getElementById('preview-spawn-time').textContent = formatDateTime(spawnTime);
                 document.getElementById('spawn-preview').classList.remove('hidden');
             } else {
@@ -202,6 +223,7 @@
 
         // Timer functionality
         let activeTimers = [];
+        const LOCAL_STORAGE_KEY = 'bossTimers';
         
         function formatTime(seconds) {
             const hrs = Math.floor(seconds / 3600);
@@ -217,27 +239,55 @@
         }
 
         function formatDateTime(date) {
-            return date.toLocaleString('en-US', { 
+            // Ensure the date is treated as GMT+8 for consistent display
+            const options = { 
                 hour12: false,
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',
                 hour: '2-digit',
-                minute: '2-digit'
-            }).replace(',', '');
+                minute: '2-digit',
+                timeZone: GMT8_TIMEZONE // GMT+8 equivalent
+            };
+            return date.toLocaleString('en-US', options).replace(',', '');
+        }
+
+        function saveTimers() {
+            // We only need to save the `bossData` for each timer, not the DOM elements
+            const dataToSave = activeTimers.map(timer => ({
+                ...timer.bossData,
+                killTime: timer.bossData.killTime.toISOString() // Store Date as ISO string
+            }));
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+        }
+
+        function loadTimers() {
+            const storedTimers = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (storedTimers) {
+                const parsedTimers = JSON.parse(storedTimers);
+                parsedTimers.forEach(bossData => {
+                    // Convert killTime back to Date object.
+                    // IMPORTANT: Create it from ISO string directly, then adjust to GMT+8 if needed for calculations.
+                    // The Date object itself will internally store UTC, but we force its interpretation for display.
+                    bossData.killTime = new Date(bossData.killTime); 
+                    createTimer(bossData);
+                });
+            }
         }
 
         function updateTimers() {
-            const now = Date.now();
+            const now = getGMT8Date(); // Get current GMT+8 time for comparison
             activeTimers.forEach(timer => {
                 if (timer.active) {
-                    const remaining = Math.floor((timer.endTime - now) / 1000);
+                    const remaining = Math.floor((timer.endTime - now.getTime()) / 1000); // Compare with GMT+8 now
                     if (remaining <= 0) {
                         timer.active = false;
                         timer.countdownEl.textContent = "SPAWNED!";
                         timer.countdownEl.classList.add('text-red-500', 'pulse');
                         timer.timeLeftEl.textContent = "BOSS IS UP!";
                         timer.timerElement.classList.add('completed');
+                        // Ensure the next spawn display is correctly updated when spawned
+                        timer.timerElement.querySelector('[data-field="next-spawn"]').textContent = formatDateTime(new Date(timer.endTime));
                     } else {
                         timer.countdownEl.textContent = formatTime(remaining);
                         timer.timeLeftEl.textContent = formatShortTime(remaining) + ' until spawn';
@@ -249,7 +299,7 @@
         function createTimer(bossData) {
             const sampleTimer = document.getElementById('sample-timer');
             const newTimer = sampleTimer.cloneNode(true);
-            newTimer.id = '';
+            newTimer.id = `timer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`; // Unique ID
             newTimer.classList.remove('hidden');
             
             // Set boss data
@@ -266,7 +316,8 @@
                 `${bossData.hours}h ${bossData.minutes}m`;
             
             // Calculate times
-            const killTime = new Date(bossData.killTime);
+            // Ensure killTime is treated as GMT+8 when calculating total milliseconds
+            const killTime = getGMT8Date(new Date(bossData.killTime)); // Re-interpret as GMT+8
             const totalMilliseconds = (bossData.hours * 3600 + bossData.minutes * 60) * 1000;
             const spawnTime = new Date(killTime.getTime() + totalMilliseconds);
             
@@ -283,23 +334,28 @@
             
             // Store timer data
             const timerObj = {
+                id: newTimer.id, // Store the ID
                 bossData,
                 countdownEl,
                 timeLeftEl,
                 timerElement: newTimer,
-                endTime: spawnTime.getTime(),
+                endTime: spawnTime.getTime(), // Store the timestamp for comparison
                 totalMilliseconds: totalMilliseconds,
                 active: true
             };
             
             activeTimers.push(timerObj);
+            saveTimers(); // Save after adding a new timer
             
             // Set up boss died button
             newTimer.querySelector('.boss-died-btn').addEventListener('click', function() {
                 if (confirm('Reset timer with current time as new kill time?')) {
-                    const newKillTime = new Date();
+                    const newKillTime = getGMT8Date(); // Get current time in GMT+8
                     const newSpawnTime = new Date(newKillTime.getTime() + timerObj.totalMilliseconds);
                     
+                    // Update bossData for saving
+                    timerObj.bossData.killTime = newKillTime;
+
                     // Update displays
                     newTimer.querySelector('[data-field="kill-time"]').textContent = formatDateTime(newKillTime);
                     newTimer.querySelector('[data-field="next-spawn"]').textContent = formatDateTime(newSpawnTime);
@@ -311,6 +367,18 @@
                     timerObj.countdownEl.classList.remove('text-red-500', 'pulse');
                     timerObj.countdownEl.classList.add('flip');
                     setTimeout(() => timerObj.countdownEl.classList.remove('flip'), 500);
+                    saveTimers(); // Save after resetting
+                }
+            });
+
+            // Set up delete button
+            newTimer.querySelector('.delete-timer-btn').addEventListener('click', function() {
+                if (confirm('Are you sure you want to delete this timer?')) {
+                    // Remove from DOM
+                    newTimer.remove();
+                    // Remove from activeTimers array
+                    activeTimers = activeTimers.filter(t => t.id !== timerObj.id);
+                    saveTimers(); // Save after deleting
                 }
             });
             
@@ -338,7 +406,7 @@
                 return;
             }
             
-            // Convert kill time to Date object
+            // Convert kill time input directly to a Date object, assuming the input already reflects GMT+8
             const killTime = new Date(killTimeInput);
             
             createTimer({
@@ -347,8 +415,11 @@
                 status: bossStatus,
                 hours: respawnHours,
                 minutes: respawnMinutes,
-                killTime: killTime
+                killTime: killTime // This Date object is effectively representing GMT+8 due to how it's sourced
             });
+
+            // Clear the form after adding a timer
+            document.getElementById('reset-form').click();
         });
 
         // Reset form button
@@ -364,6 +435,9 @@
 
         // Update all timers every second
         setInterval(updateTimers, 1000);
+
+        // Load timers when the page loads
+        window.addEventListener('load', loadTimers);
     </script>
 </body>
 </html>
