@@ -146,12 +146,9 @@
                     <div class="text-sm text-gray-400 mb-1">Next Spawn (GMT+8):</div>
                     <div class="text-lg font-semibold text-green-400" data-field="next-spawn">-</div>
                 </div>
-                <div class="flex items-end justify-end space-x-2">
+                <div class="flex items-end justify-end">
                     <button class="boss-died-btn px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded">
                         <i class="fas fa-skull mr-1"></i> Boss Died Again
-                    </button>
-                    <button class="delete-timer-btn px-4 py-2 bg-red-600 hover:bg-red-700 rounded">
-                        <i class="fas fa-trash-alt mr-1"></i> Delete
                     </button>
                 </div>
             </div>
@@ -205,7 +202,6 @@
 
         // Timer functionality
         let activeTimers = [];
-        const LOCAL_STORAGE_KEY = 'bossTimers';
         
         function formatTime(seconds) {
             const hrs = Math.floor(seconds / 3600);
@@ -221,38 +217,14 @@
         }
 
         function formatDateTime(date) {
-            // Ensure the date is treated as GMT+8 for consistent display
-            const options = { 
+            return date.toLocaleString('en-US', { 
                 hour12: false,
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',
                 hour: '2-digit',
-                minute: '2-digit',
-                timeZone: 'Asia/Singapore' // GMT+8 equivalent
-            };
-            return date.toLocaleString('en-US', options).replace(',', '');
-        }
-
-        function saveTimers() {
-            // We only need to save the `bossData` for each timer, not the DOM elements
-            const dataToSave = activeTimers.map(timer => ({
-                ...timer.bossData,
-                killTime: timer.bossData.killTime.toISOString() // Store Date as ISO string
-            }));
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
-        }
-
-        function loadTimers() {
-            const storedTimers = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (storedTimers) {
-                const parsedTimers = JSON.parse(storedTimers);
-                parsedTimers.forEach(bossData => {
-                    // Convert killTime back to Date object
-                    bossData.killTime = new Date(bossData.killTime);
-                    createTimer(bossData);
-                });
-            }
+                minute: '2-digit'
+            }).replace(',', '');
         }
 
         function updateTimers() {
@@ -277,7 +249,7 @@
         function createTimer(bossData) {
             const sampleTimer = document.getElementById('sample-timer');
             const newTimer = sampleTimer.cloneNode(true);
-            newTimer.id = `timer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`; // Unique ID
+            newTimer.id = '';
             newTimer.classList.remove('hidden');
             
             // Set boss data
@@ -311,7 +283,6 @@
             
             // Store timer data
             const timerObj = {
-                id: newTimer.id, // Store the ID
                 bossData,
                 countdownEl,
                 timeLeftEl,
@@ -322,7 +293,6 @@
             };
             
             activeTimers.push(timerObj);
-            saveTimers(); // Save after adding a new timer
             
             // Set up boss died button
             newTimer.querySelector('.boss-died-btn').addEventListener('click', function() {
@@ -330,9 +300,6 @@
                     const newKillTime = new Date();
                     const newSpawnTime = new Date(newKillTime.getTime() + timerObj.totalMilliseconds);
                     
-                    // Update bossData for saving
-                    timerObj.bossData.killTime = newKillTime;
-
                     // Update displays
                     newTimer.querySelector('[data-field="kill-time"]').textContent = formatDateTime(newKillTime);
                     newTimer.querySelector('[data-field="next-spawn"]').textContent = formatDateTime(newSpawnTime);
@@ -344,18 +311,6 @@
                     timerObj.countdownEl.classList.remove('text-red-500', 'pulse');
                     timerObj.countdownEl.classList.add('flip');
                     setTimeout(() => timerObj.countdownEl.classList.remove('flip'), 500);
-                    saveTimers(); // Save after resetting
-                }
-            });
-
-            // Set up delete button
-            newTimer.querySelector('.delete-timer-btn').addEventListener('click', function() {
-                if (confirm('Are you sure you want to delete this timer?')) {
-                    // Remove from DOM
-                    newTimer.remove();
-                    // Remove from activeTimers array
-                    activeTimers = activeTimers.filter(t => t.id !== timerObj.id);
-                    saveTimers(); // Save after deleting
                 }
             });
             
@@ -394,9 +349,6 @@
                 minutes: respawnMinutes,
                 killTime: killTime
             });
-
-            // Clear the form after adding a timer
-            document.getElementById('reset-form').click();
         });
 
         // Reset form button
@@ -412,9 +364,6 @@
 
         // Update all timers every second
         setInterval(updateTimers, 1000);
-
-        // Load timers when the page loads
-        window.addEventListener('load', loadTimers);
     </script>
 </body>
 </html>
